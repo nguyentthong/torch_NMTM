@@ -9,23 +9,46 @@ from tqdm import tqdm, trange
 from model import NMTM
 from dataset import TextData
 import argparse
+import subprocess
 
 parser = argparse.ArgumentParser('Multimodal Neural Topic Model')
 parser.add_argument('--topic_num', type=int, default=20)
-parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--epoch', type=int, default=200)
+parser.add_argument('--batch_size', type=int, default=256)
+parser.add_argument('--epoch', type=int, default=2000)
 parser.add_argument('--e1', type=int, default=100)
 parser.add_argument('--e2', type=int, default=100)
 parser.add_argument('--lam', type=float, default=0.8)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--data_dir', type=str, default='./data/Amazon_Review')
 parser.add_argument('--output_dir', type=str, default='./output')
+parser.add_argument('--lang', type=str, default='en')
 args = parser.parse_args()
+
+
+def evaluate_topic_coherence(lang='en'):
+    if lang == 'en':
+        subprocess.run("cd topic_interpretability ; bash run-oc-nmtm_en.sh", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
+    elif lang == 'cn':
+        subprocess.run("cd topic_interpretability ; bash run-oc-nmtm_cn.sh", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
+    score = -1
+    try:
+        if lang == 'en':
+            with open('topic_interpretability/results/topics-oc-en.txt') as f:
+                line = f.readlines()[-2]
+                score = float(line.split()[-1])
+        elif lang == 'cn':
+            with open('topic_interpretability/results/topics-oc-cn.txt') as f:
+                line = f.readlines()[-2]
+                score = float(line.split()[-1])
+    except:
+        pass
+    return score
+
 
 def train(config, model, dataset):
     lr = config['lr']
-    # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(0.99, 0.999))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(0.99, 0.999))
 
     train_loader = DataLoader(dataset, batch_size=config['batch_size'], shuffle=True)
     for epoch in range(config['epoch']):
@@ -46,8 +69,14 @@ def train(config, model, dataset):
             train_loss.append(loss.item())
 
         train_loss = np.mean(train_loss)
-        print('Epoch {} \t Loss: {}'.format(epoch, train_loss))
+        evaluate(config, model, dataset)
+        score = evaluate_topic_coherence(config['lang']) 
+        if config['lang'] == 'en':
+            print('Epoch {} \t Loss: {} \t English Topic Coherence: {}'.format(epoch, train_loss, score))
+        elif config['lang'] == 'cn':
+            print('Epoch {} \t Loss: {} \t Chinese Topic Coherence: {}'.format(epoch, train_loss, score))
     return model
+
 
 def print_top_words(config, beta, id2word, lang, n_top_words=15):
     top_words = []
@@ -57,7 +86,7 @@ def print_top_words(config, beta, id2word, lang, n_top_words=15):
     with open(os.path.join(config['output_dir'], 'top_words_T{}_K{}_{}'.format(n_top_words, config['topic_num'], lang)), 'w') as f:
         for line in top_words:
             f.write(line + '\n')
-            print(line)
+
 
 def export_beta(config, model, data):
     beta_en, beta_cn = model.beta_en, model.beta_cn

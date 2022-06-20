@@ -25,10 +25,10 @@ class NMTM(nn.Module):
         
         self.act_fun = nn.Softplus()
         self.softmax = nn.Softmax(-1)
-        self.dropout = nn.Dropout(p=0.2)
+        self.dropout = nn.Dropout(p=0.0)
 
-        self.batch_norm_encode_mean = nn.BatchNorm1d(self.config['topic_num'])
-        self.batch_norm_encode_log_sigma_sq = nn.BatchNorm1d(self.config['topic_num'])
+        self.batch_norm_encode_mean = nn.BatchNorm1d(self.config['topic_num'], eps=0.001, affine=False)
+        self.batch_norm_encode_log_sigma_sq = nn.BatchNorm1d(self.config['topic_num'], eps=0.001, affine=False)
                 
         self.W2 = nn.Parameter(torch.randn(self.config['e1'], self.config['e2']))
         self.B2 = nn.Parameter(torch.randn(self.config['e2']))
@@ -41,13 +41,13 @@ class NMTM(nn.Module):
         
         self.init_params()
         # decoder
-        beta_cn = (self.config['lam'] * torch.matmul(self.phi_en, self.Map_en2cn) + (1-self.config['lam']) * self.phi_cn).detach()
+        beta_cn = (self.config['lam'] * torch.matmul(self.phi_en, self.Map_en2cn) + (1-self.config['lam']) * self.phi_cn)
         self.beta_cn = nn.Parameter(beta_cn)
-        beta_en = (self.config['lam'] * torch.matmul(self.phi_cn, self.Map_cn2en) + (1-self.config['lam']) * self.phi_en).detach()
+        beta_en = (self.config['lam'] * torch.matmul(self.phi_cn, self.Map_cn2en) + (1-self.config['lam']) * self.phi_en)
         self.beta_en = nn.Parameter(beta_en)
         
-        self.batch_norm_decode_en = nn.BatchNorm1d(self.config['vocab_size_en'])
-        self.batch_norm_decode_cn = nn.BatchNorm1d(self.config['vocab_size_cn'])
+        self.batch_norm_decode_en = nn.BatchNorm1d(self.config['vocab_size_en'], eps=0.001, affine=False)
+        self.batch_norm_decode_cn = nn.BatchNorm1d(self.config['vocab_size_cn'], eps=0.001, affine=False)
         
         # loss
         self.a = 1 * torch.ones((1, int(self.config['topic_num'])))
@@ -81,15 +81,14 @@ class NMTM(nn.Module):
             h = self.act_fun(torch.matmul(x, self.W_cn) + self.B_cn)
 
         h = self.act_fun(torch.matmul(h, self.W2) + self.B2)
-        h = self.dropout(h)
         
         mean = self.batch_norm_encode_mean(torch.matmul(h, self.W_m) + self.B_m)
         log_sigma_sq = self.batch_norm_encode_log_sigma_sq(torch.matmul(h, self.W_s) + self.B_s)
         val = torch.sqrt(torch.exp(log_sigma_sq))
         eps = torch.zeros_like(val).normal_()
         z = mean + torch.mul(val, eps)
-        z = self.softmax(z)
         z = self.dropout(z)
+        z = self.softmax(z)
         
         return z, mean, log_sigma_sq
     
