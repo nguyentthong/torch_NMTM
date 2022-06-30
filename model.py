@@ -10,8 +10,8 @@ class NMTM(nn.Module):
     def __init__(self, config, Map_en2cn, Map_cn2en):
         super(NMTM, self).__init__()
         self.config = config
-        self.Map_en2cn = Map_en2cn
-        self.Map_cn2en = Map_cn2en
+        self.Map_en2cn = Map_en2cn.cuda()
+        self.Map_cn2en = Map_cn2en.cuda()
         
         # encoder
         self.phi_cn = nn.Parameter(torch.randn(self.config['topic_num'], self.config['vocab_size_cn']))
@@ -41,10 +41,6 @@ class NMTM(nn.Module):
         
         self.init_params()
         # decoder
-        beta_cn = (self.config['lam'] * torch.matmul(self.phi_en, self.Map_en2cn) + (1-self.config['lam']) * self.phi_cn)
-        self.beta_cn = nn.Parameter(beta_cn)
-        beta_en = (self.config['lam'] * torch.matmul(self.phi_cn, self.Map_cn2en) + (1-self.config['lam']) * self.phi_en)
-        self.beta_en = nn.Parameter(beta_en)
         
         self.batch_norm_decode_en = nn.BatchNorm1d(self.config['vocab_size_en'], eps=0.001, affine=False)
         self.batch_norm_decode_cn = nn.BatchNorm1d(self.config['vocab_size_cn'], eps=0.001, affine=False)
@@ -71,7 +67,7 @@ class NMTM(nn.Module):
         
         nn.init.zeros_(self.B2)
         nn.init.zeros_(self.B_m)     
-        nn.init.zeros_(self.B_s)   
+        nn.init.zeros_(self.B_s)  
         
 
     def encode(self, x, lang):
@@ -110,14 +106,22 @@ class NMTM(nn.Module):
         recon_loss = torch.sum(-x * torch.log(x_recon), axis=1)
         loss = latent_loss + recon_loss
         return loss.mean()
+
+    def calculate_beta(self):
+        beta_cn = (self.config['lam'] * torch.matmul(self.phi_en, self.Map_en2cn) + (1-self.config['lam']) * self.phi_cn).detach()
+        beta_en = (self.config['lam'] * torch.matmul(self.phi_cn, self.Map_cn2en) + (1-self.config['lam']) * self.phi_en).detach()
+        return beta_cn, beta_en        
     
     def forward(self, x_cn, x_en):
+        beta_cn = (self.config['lam'] * torch.matmul(self.phi_en, self.Map_en2cn) + (1-self.config['lam']) * self.phi_cn)
+        beta_en = (self.config['lam'] * torch.matmul(self.phi_cn, self.Map_cn2en) + (1-self.config['lam']) * self.phi_en)
+
         # encode
         z_cn, z_mean_cn, z_log_sigma_sq_cn = self.encode(x_cn, 'cn')
         z_en, z_mean_en, z_log_sigma_sq_en = self.encode(x_en, 'en')
         
         # decode
-        x_recon_cn = self.decode(z_cn, self.beta_cn, 'cn')
-        x_recon_en = self.decode(z_en, self.beta_en, 'en')
+        x_recon_cn = self.decode(z_cn, beta_cn, 'cn')
+        x_recon_en = self.decode(z_en, beta_en, 'en')
         
         return z_cn, z_mean_cn, z_log_sigma_sq_cn, z_en, z_mean_en, z_log_sigma_sq_en, x_recon_cn, x_recon_en
